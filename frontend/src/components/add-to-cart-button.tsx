@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-
 import { addToCart } from "./cart-storage";
+import { useCart } from "./cart-context";
 
 type Props = {
   product: {
@@ -15,60 +14,46 @@ type Props = {
 };
 
 export default function AddToCartButton({ product }: Props) {
-  const [added, setAdded] = useState(false);
-  const [quantity, setQuantity] = useState(1);
+  const { items, openDrawer } = useCart();
+
+  const isInCart = items.some((item) => item.id === product.id);
+  const quantity = items.find((item) => item.id === product.id)?.quantity || 0;
+
+  const handleAddToCart = () => {
+    addToCart(product, 1);
+    openDrawer();
+  };
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <label style={{ display: "block", marginBottom: 8, color: "#cbd5e1", fontSize: 14 }}>
-        Cantidad
-      </label>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input
-          type="number"
-          min={1}
-          max={Math.max(1, product.stock)}
-          value={quantity}
-          disabled={product.stock === 0}
-          onChange={(event) => {
-            const next = Number(event.target.value || 1);
-            setQuantity(Math.max(1, Math.min(next, product.stock || 1)));
-          }}
-          style={{
-            width: 84,
-            border: "1px solid #334155",
-            background: "#0f172a",
-            color: "#fff",
-            padding: "10px 12px",
-            borderRadius: 8,
-            fontWeight: 700,
-          }}
-        />
-        <button
-          type="button"
-          disabled={product.stock === 0}
-          onClick={() => {
-            addToCart(product, quantity);
-            setAdded(true);
-            setTimeout(() => setAdded(false), 1200);
-          }}
-          style={{
-            flex: 1,
-            border: "1px solid rgba(255,255,255,0.2)",
-            background: product.stock === 0 ? "#4b5563" : added ? "#14532d" : "#ff5500",
-            color: "#fff",
-            padding: "10px 14px",
-            borderRadius: 8,
-            fontWeight: 700,
-            cursor: product.stock === 0 ? "not-allowed" : "pointer",
-          }}
-        >
-          {product.stock === 0 ? "Agotado" : added ? "Agregado" : "Agregar al carrito"}
-        </button>
-      </div>
-      {product.stock > 0 && (
-        <p style={{ color: "#94a3b8", fontSize: 12, marginBottom: 0 }}>Maximo disponible: {product.stock}</p>
-      )}
+    <div style={{ marginTop: 20 }}>
+      <button
+        type="button"
+        onClick={handleAddToCart}
+        style={{
+          width: "100%",
+          border: "none",
+          background: isInCart ? "linear-gradient(135deg, #22c55e, #16a34a)" : "linear-gradient(135deg, #ff7722, #ff5500)",
+          color: "#fff",
+          padding: "16px 20px",
+          borderRadius: 12,
+          fontWeight: 800,
+          fontSize: 16,
+          cursor: "pointer",
+          transition: "all 0.3s ease",
+          boxShadow: isInCart ? "0 0 20px rgba(34, 197, 94, 0.4)" : "0 0 20px rgba(255, 85, 0, 0.4)",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+        }}
+      >
+        {isInCart ? `✓ En carrito (${quantity})` : "Agregar al carrito"}
+      </button>
+      <p style={{ color: "#94a3b8", fontSize: 12, marginTop: 12, textAlign: "center" }}>
+        Ajusta la cantidad en el carrito si es necesario
+      </p>
     </div>
   );
 }

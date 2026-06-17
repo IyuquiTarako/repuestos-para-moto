@@ -143,3 +143,56 @@ def update_product(db: Session, product: models.Product, payload: dict) -> model
 def delete_product(db: Session, product: models.Product) -> None:
 	db.delete(product)
 	db.commit()
+
+
+def get_user_by_email(db: Session, email: str) -> models.User | None:
+	return db.query(models.User).filter(models.User.email == email).first()
+
+
+def create_user(db: Session, email: str, username: str, hashed_password: str, is_admin: bool = False) -> models.User:
+	user = models.User(email=email, username=username, hashed_password=hashed_password, is_admin=is_admin)
+	db.add(user)
+	db.commit()
+	db.refresh(user)
+	return user
+
+
+def get_user_by_id(db: Session, user_id: int) -> models.User | None:
+	return db.get(models.User, user_id)
+
+
+def update_product_sales(db: Session, product: models.Product, increment: int = 1) -> models.Product:
+	product.sales_count += increment
+	db.commit()
+	db.refresh(product)
+	return product
+
+def get_coupon_by_code(db: Session, code: str) -> models.Coupon | None:
+    return db.query(models.Coupon).filter(models.Coupon.code == code).first()
+
+
+def validate_coupon(db: Session, code: str) -> tuple[bool, int]:
+    """Validate coupon and return (is_valid, discount_percent)."""
+    from datetime import datetime
+
+    coupon = get_coupon_by_code(db, code)
+    if not coupon:
+        return False, 0
+
+    if not coupon.is_active:
+        return False, 0
+
+    if coupon.expiry_date and coupon.expiry_date < datetime.utcnow():
+        return False, 0
+
+    if coupon.max_uses and coupon.times_used >= coupon.max_uses:
+        return False, 0
+
+    return True, coupon.discount_percent
+
+
+def increment_coupon_usage(db: Session, coupon: models.Coupon) -> models.Coupon:
+    coupon.times_used += 1
+    db.commit()
+    db.refresh(coupon)
+    return coupon

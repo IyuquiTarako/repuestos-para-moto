@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 
 import AddToCartButton from "../../../components/add-to-cart-button";
+import RecommendedCarousel from "../../../components/recommended-carousel";
+import SiteHeader from "../../../components/site-header";
 
 type ProductDetail = {
   id: number;
@@ -17,6 +19,30 @@ type ProductDetail = {
   };
 };
 
+type ProductListItem = {
+  id: number;
+  name: string;
+  slug: string;
+  price: number | string;
+  stock: number;
+  image_url: string | null;
+  category?: {
+    id: number;
+    name: string;
+    slug: string;
+  };
+  technical_sheet?: Record<string, string> | null;
+};
+
+type ProductResponse =
+  | ProductListItem[]
+  | {
+      items: ProductListItem[];
+      total: number;
+      skip: number;
+      limit: number;
+    };
+
 async function getProduct(slug: string): Promise<ProductDetail | null> {
   try {
     const response = await fetch(`http://127.0.0.1:8000/products/${slug}`, {
@@ -30,6 +56,62 @@ async function getProduct(slug: string): Promise<ProductDetail | null> {
   } catch {
     return null;
   }
+}
+
+async function getProductsByQuery(query: URLSearchParams): Promise<ProductListItem[]> {
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/products?${query.toString()}`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) return [];
+    const data: ProductResponse = await response.json();
+    return Array.isArray(data) ? data : data.items;
+  } catch {
+    return [];
+  }
+}
+
+function getMotoHint(technicalSheet?: Record<string, string> | null): string {
+  if (!technicalSheet) return "";
+
+  const entry = Object.entries(technicalSheet).find(([key]) =>
+    /moto|compat|aplica|vehiculo|modelo/i.test(key)
+  );
+  if (!entry) return "";
+
+  const cleaned = String(entry[1] ?? "").trim();
+  if (!cleaned) return "";
+  return cleaned.split(/[,|/]/).map((part) => part.trim()).find(Boolean) ?? "";
+}
+
+async function getRecommendedProducts(product: ProductDetail): Promise<ProductListItem[]> {
+  const byId = new Map<number, ProductListItem>();
+
+  if (product.category?.slug) {
+    const categoryQuery = new URLSearchParams();
+    categoryQuery.set("limit", "10");
+    categoryQuery.set("category", product.category.slug);
+    const sameCategory = await getProductsByQuery(categoryQuery);
+    for (const item of sameCategory) {
+      if (item.slug !== product.slug) byId.set(item.id, item);
+    }
+  }
+
+  if (byId.size < 6) {
+    const motoHint = getMotoHint(product.technical_sheet);
+    if (motoHint) {
+      const motoQuery = new URLSearchParams();
+      motoQuery.set("limit", "10");
+      motoQuery.set("moto", motoHint);
+      const sameMoto = await getProductsByQuery(motoQuery);
+      for (const item of sameMoto) {
+        if (item.slug !== product.slug) byId.set(item.id, item);
+      }
+    }
+  }
+
+  return Array.from(byId.values()).slice(0, 12);
 }
 
 function formatCop(value: number | string): string {
@@ -47,57 +129,43 @@ export default async function ProductDetailPage({ params }: { params: { slug: st
   if (!product) notFound();
 
   const technicalEntries = Object.entries(product.technical_sheet ?? {});
+  const recommendedProducts = await getRecommendedProducts(product);
 
   return (
-    <main style={{ background: "#0a0a0c", minHeight: "100vh", color: "#f8fafc", padding: "28px 16px" }}>
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <a href="/" style={{ color: "#fb923c", textDecoration: "none", fontWeight: 700 }}>
-          ← Volver al catalogo
-        </a>
+    <main className="product-page">
+      <SiteHeader />
 
-        <section
-          style={{
-            marginTop: 20,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 24,
-            background: "#141418",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 14,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              minHeight: 280,
-              display: "grid",
-              placeItems: "center",
-              background:
-                "radial-gradient(circle at 20% 20%, rgba(255,85,0,0.25), transparent 40%), linear-gradient(135deg, #222, #111)",
-            }}
-          >
+      <div className="product-wrap">
+        <nav className="product-breadcrumb" aria-label="Ruta de navegacion">
+          <a href="/">Inicio</a>
+          <span>/</span>
+          <a href="/#catalogo">Catalogo</a>
+          <span>/</span>
+          <span>{product.name}</span>
+        </nav>
+
+        <section className="product-card">
+          <div className="product-media">
             {product.image_url ? (
-              <img
-                src={product.image_url}
-                alt={product.name}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
+              <img src={product.image_url} alt={product.name} className="product-media-image" />
             ) : (
-              <span style={{ fontSize: 90, color: "#f97316", fontWeight: 800 }}>{product.name[0]}</span>
+              <span className="product-media-fallback">{product.name[0]}</span>
             )}
           </div>
 
-          <div style={{ padding: 24 }}>
-            <p style={{ color: "#94a3b8", marginTop: 0, marginBottom: 10 }}>
-              Categoria: {product.category?.name ?? "General"}
-            </p>
-            <h1 style={{ marginTop: 0, marginBottom: 10, fontSize: 34 }}>{product.name}</h1>
-            <p style={{ marginTop: 0, color: "#f97316", fontWeight: 800, fontSize: 24 }}>
-              {formatCop(product.price)}
-            </p>
-            <p style={{ color: "#cbd5e1" }}>
-              Stock actual: <strong>{product.stock}</strong>
-            </p>
+          <div className="product-info">
+            <p className="product-category">Categoria: {product.category?.name ?? "General"}</p>
+            <h1 className="product-title">{product.name}</h1>
+            <p className="product-price">{formatCop(product.price)}</p>
+
+            <div className="product-actions-row">
+              <a href="/#catalogo" className="product-link-secondary">
+                Volver al catalogo
+              </a>
+              <a href="/carrito" className="product-link-secondary">
+                Ir al carrito
+              </a>
+            </div>
 
             <AddToCartButton
               product={{
@@ -111,36 +179,38 @@ export default async function ProductDetailPage({ params }: { params: { slug: st
           </div>
         </section>
 
-        <section
-          style={{
-            marginTop: 24,
-            background: "#101014",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 14,
-            padding: 20,
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>Ficha tecnica</h2>
-          {technicalEntries.length === 0 && <p style={{ color: "#94a3b8" }}>Sin detalles tecnicos cargados.</p>}
+        <section className="product-specs">
+          <div className="product-specs-head">
+            <h2>Ficha tecnica</h2>
+            <p>Revisa compatibilidad y datos clave antes de confirmar tu compra.</p>
+          </div>
+
+          {technicalEntries.length === 0 && <p className="product-specs-empty">Sin detalles tecnicos cargados.</p>}
+
           {technicalEntries.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
+            <ul className="product-specs-grid">
               {technicalEntries.map(([key, value]) => (
-                <li
-                  key={key}
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    background: "#1b1b22",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <strong style={{ color: "#f8fafc" }}>{key}</strong>
-                  <span style={{ color: "#cbd5e1", textAlign: "right" }}>{String(value)}</span>
+                <li key={key} className="product-spec-item">
+                  <strong>{key}</strong>
+                  <span>{String(value)}</span>
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+
+        <section className="product-recommended">
+          <div className="product-specs-head">
+            <h2>Productos recomendados</h2>
+            <p>Basados en categoria y compatibilidad de moto para ayudarte a completar tu compra.</p>
+          </div>
+
+          {recommendedProducts.length === 0 && (
+            <p className="product-specs-empty">No encontramos recomendados relacionados por ahora.</p>
+          )}
+
+          {recommendedProducts.length > 0 && (
+            <RecommendedCarousel items={recommendedProducts} />
           )}
         </section>
       </div>

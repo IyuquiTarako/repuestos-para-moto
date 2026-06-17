@@ -1,5 +1,6 @@
 import ProductCardActions from "../components/product-card-actions";
-import CartIndicator from "../components/cart-indicator";
+import SiteHeader from "../components/site-header";
+import { HomeContent } from "../components/home-content";
 
 type Product = {
 	id: number;
@@ -98,15 +99,16 @@ function formatCop(value: number | string): string {
 	}).format(asNumber);
 }
 
-export default async function HomePage({ searchParams = {} }: { searchParams?: SearchParams }) {
-	const products = await getProducts(searchParams);
+export default async function HomePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+	const resolvedSearchParams = await searchParams;
+	const products = await getProducts(resolvedSearchParams);
 	const categories = await getCategories();
-	const selectedCategory = getParam(searchParams, "category");
-	const selectedStock = getParam(searchParams, "in_stock");
-	const selectedMoto = getParam(searchParams, "moto");
-	const selectedSearch = getParam(searchParams, "search");
-	const selectedMinPrice = getParam(searchParams, "min_price");
-	const selectedMaxPrice = getParam(searchParams, "max_price");
+	const selectedCategory = getParam(resolvedSearchParams, "category");
+	const selectedStock = getParam(resolvedSearchParams, "in_stock");
+	const selectedMoto = getParam(resolvedSearchParams, "moto");
+	const selectedSearch = getParam(resolvedSearchParams, "search");
+	const selectedMinPrice = getParam(resolvedSearchParams, "min_price");
+	const selectedMaxPrice = getParam(resolvedSearchParams, "max_price");
 
 	return (
 		<main className="page">
@@ -116,27 +118,15 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 				target="_blank"
 				rel="noopener noreferrer"
 			>
-				<span className="wa-icon">WA</span>
+				<span className="wa-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+						<path d="M12.04 2C6.56 2 2.11 6.45 2.11 11.93c0 1.93.55 3.8 1.6 5.41L2 22l4.82-1.65a9.9 9.9 0 0 0 5.2 1.47h.01c5.48 0 9.93-4.45 9.93-9.93A9.93 9.93 0 0 0 12.04 2Zm5.78 14.05c-.24.68-1.36 1.29-1.87 1.32-.48.03-1.08.04-1.75-.18-.4-.13-.91-.3-1.57-.58-2.77-1.2-4.57-4.01-4.7-4.2-.13-.18-1.12-1.49-1.12-2.85 0-1.36.72-2.03.97-2.31.26-.28.56-.35.75-.35h.54c.17 0 .4-.06.62.47.24.57.82 1.98.89 2.12.07.15.12.33.02.53-.1.2-.15.33-.31.5-.16.19-.33.41-.47.55-.16.16-.33.34-.14.67.2.33.88 1.45 1.89 2.35 1.3 1.15 2.39 1.5 2.73 1.67.33.16.52.14.72-.08.2-.22.85-.99 1.07-1.33.23-.34.45-.28.76-.17.31.11 1.98.93 2.32 1.1.34.16.56.24.64.37.08.13.08.76-.16 1.45Z" />
+					</svg>
+				</span>
 				<span className="tooltip-wa">Cotiza por WhatsApp</span>
 			</a>
 
-			<header className="header">
-				<div className="logo">
-					AP GROUP <span>MOTOTECH</span>
-				</div>
-				<nav className="nav">
-					<a href="#inicio" className="nav-link">
-						Inicio
-					</a>
-					<a href="#catalogo" className="nav-link">
-						Catalogo
-					</a>
-					<CartIndicator />
-					<a href="/admin" className="btn-nav">
-						Panel Admin
-					</a>
-				</nav>
-			</header>
+			<SiteHeader showAdmin />
 
 			<section id="inicio" className="hero">
 				<div className="hero-content">
@@ -175,108 +165,7 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 					<p>Datos reales desde la base de datos, filtrados en tiempo real</p>
 				</div>
 
-				<form className="filters" method="get" action="/">
-					<div className="filter-grid">
-						<label className="filter-item">
-							<span>Palabra clave</span>
-							<input name="search" defaultValue={selectedSearch} placeholder="Bujia, filtro, cadena..." />
-						</label>
-
-						<label className="filter-item">
-							<span>Moto</span>
-							<input name="moto" defaultValue={selectedMoto} placeholder="FZ, NS200, XTZ..." />
-						</label>
-
-						<label className="filter-item">
-							<span>Categoria</span>
-							<select name="category" defaultValue={selectedCategory}>
-								<option value="">Todas</option>
-								{categories.map((category) => (
-									<option value={category.slug} key={category.id}>
-										{category.name}
-									</option>
-								))}
-							</select>
-						</label>
-
-						<label className="filter-item">
-							<span>Disponibilidad</span>
-							<select name="in_stock" defaultValue={selectedStock}>
-								<option value="">Todas</option>
-								<option value="true">En stock</option>
-								<option value="false">Agotados</option>
-							</select>
-						</label>
-
-						<label className="filter-item">
-							<span>Precio minimo (COP)</span>
-							<input name="min_price" type="number" min="0" defaultValue={selectedMinPrice} placeholder="0" />
-						</label>
-
-						<label className="filter-item">
-							<span>Precio maximo (COP)</span>
-							<input name="max_price" type="number" min="0" defaultValue={selectedMaxPrice} placeholder="500000" />
-						</label>
-					</div>
-
-					<div className="filter-actions">
-						<button type="submit" className="btn-filter-primary">
-							Aplicar filtros
-						</button>
-						<a href="/#catalogo" className="btn-filter-secondary">
-							Limpiar
-						</a>
-					</div>
-				</form>
-
-				<div className="grid-categories">
-					{products.length === 0 && (
-						<div className="empty-state">No hay productos cargados todavia. Agrega desde /admin.</div>
-					)}
-
-					{products.map((product, index) => {
-						return (
-							<article className="card" key={product.id} style={{ animationDelay: `${index * 80}ms` }}>
-								<div className="card-img-placeholder">
-									<a
-										href={`/productos/${product.slug}`}
-										className="card-link-cover"
-										aria-label={`Ver ficha tecnica de ${product.name}`}
-									/>
-
-									{product.image_url ? (
-										<img className="product-img" src={product.image_url} alt={product.name} />
-									) : (
-										<span className="mechanical-icon">{product.name.slice(0, 1).toUpperCase()}</span>
-									)}
-
-									<div className="card-overlay">
-										<div className="card-meta">
-											<h3>{product.name}</h3>
-											<p className="category">{product.category?.name ?? "General"}</p>
-											<p className="price">{formatCop(product.price)}</p>
-											<p className="stock">
-												Stock: <strong>{product.stock}</strong>
-											</p>
-										</div>
-
-										<div className="card-actions">
-											<ProductCardActions
-												product={{
-													id: product.id,
-													name: product.name,
-													slug: product.slug,
-													price: Number(product.price),
-													stock: product.stock,
-												}}
-											/>
-										</div>
-									</div>
-								</div>
-							</article>
-						);
-					})}
-				</div>
+				<HomeContent products={products} categories={categories} />
 			</section>
 
 			<footer className="footer">
@@ -345,9 +234,14 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 				}
 
 				.wa-icon {
-					font-size: 12px;
-					font-weight: 800;
-					letter-spacing: 1px;
+					display: inline-flex;
+					align-items: center;
+					justify-content: center;
+					line-height: 0;
+				}
+
+				.wa-icon svg {
+					display: block;
 				}
 
 				.tooltip-wa {
@@ -405,11 +299,39 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 
 				.cart-indicator {
 					position: relative;
-					color: var(--text-light);
+					display: inline-grid;
+					place-items: center;
+					line-height: 0;
+					padding: 0;
+					width: 40px;
+					height: 40px;
+					border-radius: 999px;
+					border: 1px solid rgba(255, 255, 255, 0.24);
+					color: #fefefe;
+					background: rgba(255, 255, 255, 0.05);
 					text-decoration: none;
-					font-size: 14px;
-					font-weight: 700;
-					padding-right: 18px;
+					transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+				}
+
+				.cart-indicator:hover {
+					transform: translateY(-2px);
+					border-color: var(--accent-neon);
+					background: rgba(255, 106, 0, 0.12);
+				}
+
+				.cart-icon {
+					position: absolute;
+					inset: 0;
+					display: grid;
+					place-items: center;
+					line-height: 0;
+					pointer-events: none;
+				}
+
+				.cart-icon svg {
+					display: block;
+					width: 18px;
+					height: 18px;
 				}
 
 				.cart-badge {
@@ -458,32 +380,63 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 					padding: 0;
 					list-style: none;
 					display: grid;
-					gap: 8px;
+					gap: 7px;
+				}
+
+				.cart-popover-title {
+					margin: 0 0 10px;
+					font-size: 13px;
+					font-weight: 800;
+					color: #e2e8f0;
+					letter-spacing: 0.2px;
 				}
 
 				.cart-preview-item {
-					display: flex;
-					justify-content: space-between;
-					gap: 8px;
+					display: grid;
+					grid-template-columns: minmax(0, 1fr) auto;
+					gap: 12px;
+					align-items: start;
 					font-size: 13px;
-					padding-bottom: 8px;
-					border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+					padding: 8px;
+					border-radius: 8px;
+					background: rgba(255, 255, 255, 0.04);
+				}
+
+				.cart-preview-main {
+					flex: 1;
+					min-width: 0;
+					display: grid;
+					gap: 3px;
 				}
 
 				.cart-preview-name {
-					color: #e2e8f0;
-					overflow: hidden;
-					text-overflow: ellipsis;
+					display: block;
+					font-weight: 600;
+					color: #f8fafc;
+					white-space: normal;
+					line-height: 1.25;
+					word-break: break-word;
+				}
+
+				.cart-preview-meta {
+					display: block;
+					color: #94a3b8;
+					font-size: 12px;
+					line-height: 1.3;
+				}
+
+				.cart-preview-subtotal {
+					align-self: start;
+					color: #fbbf24;
+					font-weight: 700;
 					white-space: nowrap;
 				}
 
-				.cart-preview-qty {
-					color: #94a3b8;
-					font-weight: 700;
-				}
-
 				.cart-total {
-					margin: 10px 0 4px;
+					display: block;
+					margin: 12px 0 0;
+					padding-top: 10px;
+					border-top: 1px solid rgba(255, 255, 255, 0.12);
 					font-size: 14px;
 					font-weight: 800;
 					color: #fb923c;
@@ -491,6 +444,7 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 
 				.cart-go {
 					display: inline-block;
+					margin-top: 6px;
 					font-size: 12px;
 					color: #93c5fd;
 				}
@@ -637,10 +591,10 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 				}
 
 				.card-img-placeholder {
-					height: 380px;
+					height: 360px;
 					display: grid;
 					place-items: center;
-					background: linear-gradient(135deg, #222, #111);
+					background: #ffffff;
 					position: relative;
 					overflow: hidden;
 				}
@@ -850,7 +804,9 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 				.product-img {
 					width: 100%;
 					height: 100%;
-					object-fit: cover;
+					object-fit: contain;
+					padding: 12px;
+					background: #ffffff;
 					transition: transform 0.35s ease;
 				}
 
@@ -882,7 +838,7 @@ export default async function HomePage({ searchParams = {} }: { searchParams?: S
 					}
 
 					.card-img-placeholder {
-						height: 360px;
+						height: 320px;
 					}
 
 					.hero {

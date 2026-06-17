@@ -1,5 +1,7 @@
 import os
 import re
+import hashlib
+import secrets
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +24,20 @@ app.add_middleware(
 )
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "mototech-admin-token")
+
+
+def hash_password(password: str) -> str:
+	salt = secrets.token_hex(16)
+	pwdhash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
+	return f"{salt}${pwdhash.hex()}"
+
+
+def verify_password(password: str, hashed: str) -> bool:
+	try:
+		salt, pwdhash = hashed.split("$")
+		return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000).hex() == pwdhash
+	except ValueError:
+		return False
 
 
 @app.on_event("startup")
@@ -190,3 +206,56 @@ def delete_product(
 		raise HTTPException(status_code=404, detail="Product not found")
 	crud.delete_product(db, product)
 	return None
+
+
+@app.post("/auth/register", response_model=schemas.UserOut, status_code=201)
+def register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
+	existing_user = crud.get_user_by_email(db, payload.email)
+	if existing_user:
+		raise HTTPException(status_code=409, detail="Email already registered")
+	
+	hashed = hash_password(payload.password)
+	user = crud.create_user(db, email=payload.email, username=payload.username, hashed_password=hashed, is_admin=False)
+	return user
+
+
+@app.post("/auth/login", response_model=schemas.AuthToken)
+def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
+	user = crud.get_user_by_email(db, payload.email)
+	if not user or not verify_password(payload.password, user.hashed_password):
+		raise HTTPException(status_code=401, detail="Invalid credentials")
+	
+	if not user.is_active:
+		raise HTTPException(status_code=403, detail="User is inactive")
+	
+	token = secrets.token_urlsafe(32)
+	return {
+		"access_token": token,
+		"token_type": "bearer",
+		"user": schemas.UserOut.model_validate(user),
+	}
+
+
+@app.post("/products/{product_id}/sale", response_model=schemas.ProductOut)
+def confirm_product_sale(
+	product_id: int,
+	quantity: int = Query(default=1, ge=1),
+	db: Session = Depends(get_db),
+	_: None = Depends(require_admin),
+):
+	product = crud.get_product_by_id(db, product_id)
+	if not product:
+		raise HTTPException(status_code=404, detail="Product not found")
+	
+	return crud.update_product_sales(db, product, increment=quantity)
+
+
+@app.post("/coupons/validate")
+def validate_coupon(code: str = Query(...), db: Session = Depends(get_db)):
+	"""Validate a coupon code and return discount percentage."""
+	is_valid, discount_percent = crud.validate_coupon(db, code)
+	
+	if not is_valid:
+		raise HTTPException(status_code=404, detail="Invalid or expired coupon")
+	
+	return {"valid": True, "discount_percent": discount_percent}

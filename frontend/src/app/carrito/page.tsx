@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CartItem, clearCart, getCart, getCartTotal, removeFromCart, updateQuantity } from "../../components/cart-storage";
+import SiteHeader from "../../components/site-header";
 
 function formatCop(value: number): string {
   return new Intl.NumberFormat("es-CO", {
@@ -12,10 +13,37 @@ function formatCop(value: number): string {
   }).format(value);
 }
 
+interface ClientData {
+  name: string;
+  email: string;
+  phone: string;
+  city: string;
+}
+
+interface DiscountData {
+  code: string;
+  percent: number;
+}
+
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [quantityInputs, setQuantityInputs] = useState<Record<number, string>>({});
   const [checkoutError, setCheckoutError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  
+  // Cliente
+  const [clientData, setClientData] = useState<ClientData>({
+    name: "",
+    email: "",
+    phone: "",
+    city: "",
+  });
+
+  // Descuento
+  const [discountCode, setDiscountCode] = useState("");
+  const [discount, setDiscount] = useState<DiscountData>({ code: "", percent: 0 });
+  const [discountError, setDiscountError] = useState("");
+  const [isValidatingDiscount, setIsValidatingDiscount] = useState(false);
 
   useEffect(() => {
     const sync = () => setItems(getCart());
@@ -29,10 +57,73 @@ export default function CartPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const nextInputs: Record<number, string> = {};
+    for (const item of items) {
+      nextInputs[item.id] = String(item.quantity);
+    }
+    setQuantityInputs(nextInputs);
+  }, [items]);
+
+  function clampQuantity(value: string): number {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) return 1;
+    return Math.max(1, parsed);
+  }
+
+  function commitQuantity(item: CartItem) {
+    const currentInput = quantityInputs[item.id] ?? String(item.quantity);
+    const normalizedQuantity = clampQuantity(currentInput);
+    setQuantityInputs((prev) => ({ ...prev, [item.id]: String(normalizedQuantity) }));
+    updateQuantity(item.id, normalizedQuantity);
+  }
+
   const total = useMemo(() => getCartTotal(items), [items]);
+  const discountedTotal = Math.floor(total * (1 - discount.percent / 100));
+  const discountAmount = total - discountedTotal;
+  const itemCount = useMemo(() => items.reduce((acc, item) => acc + item.quantity, 0), [items]);
+
+  const handleApplyDiscount = async () => {
+    if (!discountCode.trim()) {
+      setDiscountError("Ingresa un código");
+      return;
+    }
+
+    setIsValidatingDiscount(true);
+    setDiscountError("");
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/coupons/validate?code=${encodeURIComponent(discountCode)}`,
+        { method: "POST" }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        setDiscountError(data.detail || "Cupón inválido");
+        setDiscount({ code: "", percent: 0 });
+        return;
+      }
+
+      const data = await response.json();
+      setDiscount({ code: discountCode, percent: data.discount_percent });
+      setDiscountError("");
+    } catch (error) {
+      setDiscountError("Error al validar el cupón");
+      setDiscount({ code: "", percent: 0 });
+    } finally {
+      setIsValidatingDiscount(false);
+    }
+  };
 
   async function handleWhatsAppCheckout() {
     if (items.length === 0) return;
+
+    // Validar datos del cliente
+    if (!clientData.name.trim() || !clientData.email.trim() || !clientData.phone.trim()) {
+      setCheckoutError("Completa tu nombre, email y teléfono");
+      return;
+    }
 
     setCheckoutError("");
     setIsCheckingOut(true);
@@ -66,15 +157,8 @@ export default function CartPage() {
       );
 
       const outOfStock = validations.filter((entry) => entry.quantity > entry.latestStock);
-      if (outOfStock.length > 0) {
-        const details = outOfStock
-          .map((entry) => `${entry.latestName}: pediste ${entry.quantity}, disponible ${entry.latestStock}`)
-          .join(" | ");
-        setCheckoutError(`Stock insuficiente. ${details}`);
-        return;
-      }
-
       const computedTotal = validations.reduce((acc, entry) => acc + entry.latestPrice * entry.quantity, 0);
+      const finalTotal = Math.floor(computedTotal * (1 - discount.percent / 100));
 
       const lines = validations.map((entry, index) => {
         const subtotal = entry.latestPrice * entry.quantity;
@@ -82,11 +166,29 @@ export default function CartPage() {
       });
 
       const message = [
-        "Hola MotoTech, quiero finalizar mi compra:",
+        `Hola, soy ${clientData.name}`,
+        `Email: ${clientData.email}`,
+        `Teléfono: ${clientData.phone}`,
+        `Ciudad: ${clientData.city}`,
+        "",
+        "Quiero finalizar mi compra:",
         "",
         ...lines,
+        ...(outOfStock.length > 0
+          ? [
+              "",
+              "Nota disponibilidad:",
+              ...outOfStock.map(
+                (entry) =>
+                  `- ${entry.latestName}: solicito ${entry.quantity} unidades, disponibles hoy ${entry.latestStock}. Si faltan, puedo esperar algunos dias.`
+              ),
+            ]
+          : []),
         "",
-        `Total pedido: ${formatCop(computedTotal)}`,
+        `Total antes de descuento: ${formatCop(computedTotal)}`,
+        ...(discount.percent > 0 ? [`Cupón aplicado: -${discount.percent}%`, `Total con descuento: ${formatCop(finalTotal)}`] : []),
+        "",
+        `Total final: ${formatCop(finalTotal)}`,
         "",
         "Quedo atento(a) al proceso de pago y envio.",
       ].join("\n");
@@ -101,130 +203,197 @@ export default function CartPage() {
   }
 
   return (
-    <main style={{ background: "#0a0a0c", minHeight: "100vh", color: "#f8fafc", padding: "28px 16px" }}>
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <h1 style={{ marginTop: 0 }}>Carrito de compras</h1>
-        <p style={{ color: "#94a3b8" }}>Revisa tus repuestos seleccionados antes de pagar.</p>
+    <main className="page-shell">
+      <SiteHeader />
+      <div className="cart-wrap">
+        <header className="cart-headline">
+          <div>
+            <h1 className="cart-title">Carrito de compras</h1>
+            <p className="cart-subtitle">Revisa tus repuestos y confirma tu pedido por WhatsApp en menos de un minuto.</p>
+          </div>
+        </header>
 
         {items.length === 0 && (
-          <div style={{ marginTop: 18, padding: 16, border: "1px dashed rgba(255,255,255,0.3)", borderRadius: 10 }}>
+          <div className="empty-state">
             Tu carrito esta vacio. Ve al catalogo y agrega productos.
           </div>
         )}
 
         {items.length > 0 && (
-          <section
-            style={{
-              marginTop: 18,
-              background: "#141418",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 14,
-              padding: 16,
-            }}
-          >
-            <div style={{ display: "grid", gap: 12 }}>
+          <div className="cart-grid">
+            <section className="cart-items">
               {items.map((item) => (
-                <article
-                  key={item.id}
-                  style={{
-                    background: "#1b1b22",
-                    borderRadius: 10,
-                    padding: 12,
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: 12,
-                    alignItems: "center",
-                  }}
-                >
+                <article key={item.id} className="cart-item">
                   <div>
-                    <h3 style={{ margin: "0 0 6px" }}>{item.name}</h3>
-                    <p style={{ margin: 0, color: "#cbd5e1" }}>{formatCop(item.price)} c/u</p>
-                    <a href={`/productos/${item.slug}`} style={{ color: "#fb923c", fontSize: 13 }}>
+                    <h3 className="cart-item-name">{item.name}</h3>
+                    <p className="cart-item-price">{formatCop(item.price)} c/u</p>
+                    <a href={`/productos/${item.slug}`} className="cart-item-link">
                       Ver ficha tecnica
                     </a>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="qty-wrap">
                     <input
                       type="number"
                       min={1}
-                      max={item.stock}
-                      value={item.quantity}
-                      onChange={(event) => updateQuantity(item.id, Number(event.target.value))}
-                      style={{ width: 70, padding: 8, borderRadius: 6, border: "1px solid #374151", background: "#0f172a", color: "#fff" }}
+                      inputMode="numeric"
+                      className="qty-control"
+                      value={quantityInputs[item.id] ?? String(item.quantity)}
+                      onChange={(event) => {
+                        const rawValue = event.target.value;
+
+                        if (rawValue === "") {
+                          setQuantityInputs((prev) => ({ ...prev, [item.id]: "" }));
+                          return;
+                        }
+
+                        if (/^\d+$/.test(rawValue)) {
+                          setQuantityInputs((prev) => ({ ...prev, [item.id]: rawValue }));
+                        }
+                      }}
+                      onBlur={() => commitQuantity(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          commitQuantity(item);
+                        }
+                      }}
                     />
                     <button
                       type="button"
                       onClick={() => removeFromCart(item.id)}
-                      style={{ border: "none", background: "#7f1d1d", color: "#fff", padding: "8px 10px", borderRadius: 6 }}
+                      className="btn-danger"
                     >
                       Quitar
                     </button>
                   </div>
                 </article>
               ))}
-            </div>
 
-            <div
-              style={{
-                marginTop: 16,
-                paddingTop: 14,
-                borderTop: "1px solid rgba(255,255,255,0.1)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <strong style={{ fontSize: 20 }}>Total: {formatCop(total)}</strong>
-              <div style={{ display: "flex", gap: 8 }}>
-                <a
-                  href="/"
-                  style={{ textDecoration: "none", border: "1px solid #334155", color: "#e2e8f0", padding: "10px 14px", borderRadius: 8 }}
-                >
+              {checkoutError && <p className="checkout-error">{checkoutError}</p>}
+            </section>
+
+            <aside className="summary">
+              <h2>Datos del cliente</h2>
+              <form className="client-form" onSubmit={(e) => e.preventDefault()}>
+                <div className="form-group">
+                  <label htmlFor="client-name">Nombre completo *</label>
+                  <input
+                    id="client-name"
+                    type="text"
+                    placeholder="Tu nombre"
+                    value={clientData.name}
+                    onChange={(e) => setClientData({ ...clientData, name: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="client-email">Email *</label>
+                  <input
+                    id="client-email"
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={clientData.email}
+                    onChange={(e) => setClientData({ ...clientData, email: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="client-phone">Teléfono *</label>
+                  <input
+                    id="client-phone"
+                    type="tel"
+                    placeholder="+57 300 000 0000"
+                    value={clientData.phone}
+                    onChange={(e) => setClientData({ ...clientData, phone: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="client-city">Ciudad (opcional)</label>
+                  <input
+                    id="client-city"
+                    type="text"
+                    placeholder="Medellín, Bogotá, etc"
+                    value={clientData.city}
+                    onChange={(e) => setClientData({ ...clientData, city: e.target.value })}
+                  />
+                </div>
+              </form>
+
+              <div className="summary-divider"></div>
+
+              <h2>Cupón de descuento</h2>
+              <div className="discount-section">
+                <div className="discount-input-group">
+                  <input
+                    type="text"
+                    placeholder="Código de cupón"
+                    value={discountCode}
+                    onChange={(e) => setDiscountCode(e.target.value)}
+                    disabled={isValidatingDiscount}
+                  />
+                  <button 
+                    type="button" 
+                    onClick={handleApplyDiscount}
+                    disabled={isValidatingDiscount}
+                    className="discount-btn"
+                  >
+                    {isValidatingDiscount ? "..." : "Aplicar"}
+                  </button>
+                </div>
+                {discountError && <p className="discount-error">{discountError}</p>}
+                {discount.percent > 0 && <p className="discount-success">✓ Descuento {discount.percent}% aplicado</p>}
+              </div>
+
+              <div className="summary-divider"></div>
+
+              <h2>Resumen</h2>
+              <p className="summary-row">
+                <span>Productos</span>
+                <span>{itemCount}</span>
+              </p>
+              <p className="summary-row">
+                <span>Items diferentes</span>
+                <span>{items.length}</span>
+              </p>
+              <p className="summary-row">
+                <span>Subtotal</span>
+                <span>{formatCop(total)}</span>
+              </p>
+              {discount.percent > 0 && (
+                <p className="summary-row discount-row">
+                  <span>Descuento -{discount.percent}%</span>
+                  <span style={{ color: "#22c55e" }}>-{formatCop(discountAmount)}</span>
+                </p>
+              )}
+              <p className="summary-row summary-total">
+                <span>Total {discount.percent > 0 ? "final" : ""}</span>
+                <span>{formatCop(discount.percent > 0 ? discountedTotal : total)}</span>
+              </p>
+
+              <div className="summary-actions">
+                <a href="/" className="summary-link">
                   Seguir comprando
                 </a>
                 <button
                   type="button"
                   onClick={handleWhatsAppCheckout}
                   disabled={isCheckingOut}
-                  style={{
-                    border: "none",
-                    background: isCheckingOut ? "#166534" : "#25d366",
-                    color: "#fff",
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    fontWeight: 700,
-                    cursor: isCheckingOut ? "wait" : "pointer",
-                  }}
+                  className="summary-btn wa"
                 >
-                  {isCheckingOut ? "Validando stock..." : "Finalizar Compra por WhatsApp"}
+                  {isCheckingOut ? "Preparando..." : "Finalizar Compra por WhatsApp"}
                 </button>
                 <button
                   type="button"
                   onClick={() => clearCart()}
-                  style={{ border: "none", background: "#334155", color: "#fff", padding: "10px 14px", borderRadius: 8 }}
+                  className="summary-btn ghost"
                 >
                   Vaciar carrito
                 </button>
               </div>
-            </div>
 
-            {checkoutError && (
-              <p
-                style={{
-                  marginTop: 12,
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  background: "#7f1d1d",
-                  color: "#fee2e2",
-                }}
-              >
-                {checkoutError}
+              <p className="cart-subtitle" style={{ marginTop: 12 }}>
+                Compartimos disponibilidad actual por WhatsApp y, si faltan unidades, coordinamos tiempo de entrega.
               </p>
-            )}
-          </section>
+            </aside>
+          </div>
         )}
       </div>
     </main>

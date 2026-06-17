@@ -33,10 +33,10 @@ function persistCart(items: CartItem[]): void {
 export function addToCart(item: Omit<CartItem, "quantity">, quantity = 1): void {
   const current = getCart();
   const existing = current.find((product) => product.id === item.id);
-  const safeQuantity = Math.max(1, Math.min(quantity, item.stock));
+  const safeQuantity = Math.max(1, quantity);
 
   if (existing) {
-    existing.quantity = Math.min(existing.quantity + safeQuantity, existing.stock);
+    existing.quantity = Math.max(1, existing.quantity + safeQuantity);
     persistCart([...current]);
     return;
   }
@@ -49,7 +49,7 @@ export function updateQuantity(productId: number, quantity: number): void {
   const next = current
     .map((item) => {
       if (item.id !== productId) return item;
-      const safeQty = Math.max(1, Math.min(quantity, item.stock));
+      const safeQty = Math.max(1, quantity);
       return { ...item, quantity: safeQty };
     })
     .filter((item) => item.quantity > 0);

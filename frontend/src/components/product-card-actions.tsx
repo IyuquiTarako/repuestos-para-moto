@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { addToCart } from "./cart-storage";
+import { useCart } from "./cart-context";
 
 type Props = {
   product: {
@@ -15,53 +16,27 @@ type Props = {
 };
 
 export default function ProductCardActions({ product }: Props) {
-  const [quantity, setQuantity] = useState(1);
-  const [added, setAdded] = useState(false);
+  const { items, openDrawer } = useCart();
+  const [addedAnimation, setAddedAnimation] = useState(false);
 
-  if (product.stock === 0) {
-    return (
-      <button className="btn-card btn-card-disabled" disabled type="button">
-        Agotado
-      </button>
-    );
-  }
+  const isInCart = items.some((item) => item.id === product.id);
+  const quantity = items.find((item) => item.id === product.id)?.quantity || 0;
+
+  const handleAddToCart = () => {
+    addToCart(product, 1);
+    openDrawer();
+    setAddedAnimation(true);
+    setTimeout(() => setAddedAnimation(false), 1100);
+  };
 
   return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          type="number"
-          min={1}
-          max={product.stock}
-          value={quantity}
-          onChange={(event) => {
-            const next = Number(event.target.value || 1);
-            setQuantity(Math.max(1, Math.min(next, product.stock)));
-          }}
-          style={{
-            width: 84,
-            border: "1px solid #374151",
-            background: "#0f172a",
-            color: "#fff",
-            borderRadius: 6,
-            padding: "8px 10px",
-            fontWeight: 700,
-          }}
-        />
-        <button
-          className="btn-card"
-          type="button"
-          title="Agregar al carrito"
-          onClick={() => {
-            addToCart(product, quantity);
-            setAdded(true);
-            setTimeout(() => setAdded(false), 1100);
-          }}
-        >
-          {added ? "Agregado" : "Agregar"}
-        </button>
-      </div>
-      <p style={{ margin: 0, fontSize: 12, color: "#cbd5e1" }}>Maximo: {product.stock}</p>
-    </div>
+    <button
+      className={`btn-card btn-card-prominent ${isInCart ? "btn-card-in-cart" : ""}`}
+      type="button"
+      title="Agregar al carrito"
+      onClick={handleAddToCart}
+    >
+      {isInCart ? `Agregado ✓ (${quantity})` : "Agregar al carrito"}
+    </button>
   );
 }
